@@ -1,7 +1,7 @@
-package wxinfo.impl;
+package com.ysoztf.wechat.analyze.wxinfo.impl;
 
-import wxinfo.WxInfoService;
-import wxinfo.beans.WxInfoBean;
+import com.ysoztf.wechat.analyze.wxinfo.WxInfoService;
+import com.ysoztf.wechat.analyze.wxinfo.beans.WxInfoBean;
 
 import java.io.BufferedReader;
 import java.io.IOException;

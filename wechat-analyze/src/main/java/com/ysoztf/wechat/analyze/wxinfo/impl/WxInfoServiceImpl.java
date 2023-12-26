@@ -1,18 +1,34 @@
 package com.ysoztf.wechat.analyze.wxinfo.impl;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.sun.jna.Native;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Tlhelp32;
 import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.ptr.IntByReference;
 import com.ysoztf.wechat.analyze.wxinfo.WxInfoService;
+import com.ysoztf.wechat.analyze.wxinfo.beans.WxBiasInfo;
 import com.ysoztf.wechat.analyze.wxinfo.beans.WxInfoBean;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.HashMap;
+import java.util.Map;
 
 public class WxInfoServiceImpl implements WxInfoService {
+    private static Map<String, WxBiasInfo> WX_BIAS_OF_VERSION_MAP;
+
+    public WxInfoServiceImpl() {
+        if (WX_BIAS_OF_VERSION_MAP == null) {
+            WX_BIAS_OF_VERSION_MAP = buildWxBiasOfVersionMap();
+        }
+    }
+
     @Override
     public WxInfoBean loadWxInfo() {
         return null;
@@ -147,17 +163,89 @@ public class WxInfoServiceImpl implements WxInfoService {
         return weChatVersion;
     }
 
+    // 构建地址偏移Map
+    private Map<String, WxBiasInfo> buildWxBiasOfVersionMap() {
+        Gson gson = new Gson();
+        Map<String, WxBiasInfo> wxBiasOfVersionMap = new HashMap<>();
+        InputStream inputStream = null;
+        BufferedReader reader = null;
+        try {
+            inputStream = this.getClass().getResourceAsStream("/versionList.json");
+            reader = new BufferedReader(new InputStreamReader(inputStream));
+            JsonObject versionJsonObject = gson.fromJson(reader, JsonObject.class);
+            for (String version : versionJsonObject.keySet()) {
+                WxBiasInfo wxBiasInfo = new WxBiasInfo();
+                JsonArray wxBiasInfoJson = versionJsonObject.get(version).getAsJsonArray();
+                wxBiasInfo.setNameBias(wxBiasInfoJson.get(0).getAsLong());
+                wxBiasInfo.setAccountBias(wxBiasInfoJson.get(1).getAsLong());
+                wxBiasInfo.setMobileBias(wxBiasInfoJson.get(2).getAsLong());
+                wxBiasInfo.setMailBias(wxBiasInfoJson.get(3).getAsLong());
+                wxBiasOfVersionMap.put(version, wxBiasInfo);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        return wxBiasOfVersionMap;
+    }
+
+    private long getWeChatMemoryBaseAddr(int pid) {
+        long baseAddr = 0L;
+        Kernel32 kernel32 = Kernel32.INSTANCE;
+        WinNT.HANDLE snapshot = kernel32.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPMODULE , new WinDef.DWORD(pid));
+        Tlhelp32.MODULEENTRY32W.ByReference module = new Tlhelp32.MODULEENTRY32W.ByReference();
+
+        try {
+            boolean result = kernel32.Module32FirstW(snapshot, module);
+            while (result) {
+                if ("WeChatWin.dll".equals(Native.toString(module.szModule))) {
+                    String modBaseAddr = module.modBaseAddr.toString();
+                    String hexAddress = modBaseAddr.substring(modBaseAddr.indexOf("0x") + 2);
+                    baseAddr = Long.parseLong(hexAddress, 16);
+                }
+                // 输出模块信息，这里可以获取模块的基址和路径等信息
+                System.out.println("Base Address: " + module.modBaseAddr);
+
+                result = kernel32.Module32NextW(snapshot, module);
+            }
+        } finally {
+            kernel32.CloseHandle(snapshot);
+        }
+        return baseAddr;
+    }
+
+    private void getMemoryValue(long addr) {
+
+    }
+
     public static void main(String[] args) {
         WxInfoServiceImpl wxInfoService = new WxInfoServiceImpl();
         int pid = wxInfoService.getWechatPid();
-        System.out.println(pid);
         String weChatFilePath = wxInfoService.getWechatFileBasePath();
-        System.out.println(weChatFilePath);
         boolean isWow64 = wxInfoService.getIsWow64(wxInfoService.getWechatPid());
-        System.out.println(isWow64);
         String weChatInstallPath = wxInfoService.getWechatFileInstallPath(pid);
-        System.out.println(weChatInstallPath);
         String weChatVersion = wxInfoService.getWechatVersion(weChatInstallPath);
+        long baseAddr = wxInfoService.getWeChatMemoryBaseAddr(pid);
+
+        System.out.println(pid);
+        System.out.println(weChatFilePath);
+        System.out.println(isWow64);
+        System.out.println(weChatInstallPath);
         System.out.println(weChatVersion);
+        System.out.println(baseAddr);
     }
 }

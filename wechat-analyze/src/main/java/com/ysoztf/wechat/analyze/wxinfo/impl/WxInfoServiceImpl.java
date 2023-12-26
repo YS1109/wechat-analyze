@@ -17,7 +17,7 @@ public class WxInfoServiceImpl implements WxInfoService {
         int pid = 0;
         try {
             // Windows 系统命令
-            String[] command = {"cmd.exe", "/c", "tasklist"};
+            String[] command = {"cmd.exe", "/c", "tasklist /FI \"IMAGENAME eq WeChat.exe\" /FO TABLE"};
             ProcessBuilder processBuilder = new ProcessBuilder(command);
             Process process = processBuilder.start();
 

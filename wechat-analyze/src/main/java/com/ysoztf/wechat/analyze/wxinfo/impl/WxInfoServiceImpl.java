@@ -18,6 +18,7 @@ public class WxInfoServiceImpl implements WxInfoService {
         return null;
     }
 
+    // 获取微信的进程Id
     private int getWechatPid() {
         int pid = 0;
         try {
@@ -47,6 +48,7 @@ public class WxInfoServiceImpl implements WxInfoService {
         return pid;
     }
 
+    // 获取注册表中微信的文件存储位置
     private String getWechatFileBasePath() {
         String fileBasePath = null;
         try {
@@ -73,6 +75,7 @@ public class WxInfoServiceImpl implements WxInfoService {
         return fileBasePath;
     }
 
+    // 判断安装的微信是32位版本还是64位版本
     private boolean getIsWow64(int pid) {
         boolean isWow64 = false;
         // Windows 下的动态链接库，允许访问 Windows API
@@ -102,10 +105,59 @@ public class WxInfoServiceImpl implements WxInfoService {
         return isWow64;
     }
 
+    // 获取Wechat.exe的实际安装路径
+    private String getWechatFileInstallPath(int pid) {
+        String installPath = null;
+        try {
+            String command = "powershell.exe -Command \"Get-Process -Id " + pid + " | Select-Object Path\"";
+            Process process = Runtime.getRuntime().exec(command);
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("WeChat.exe")) {
+                    installPath = line;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return installPath;
+    }
+
+    // 获取安装微信的版本
+    private String getWechatVersion(String weChatInstallPath) {
+        String weChatVersion = null;
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder("powershell.exe", "-Command",
+                    "& { Get-ItemProperty -Path \"" + weChatInstallPath + "\" | Format-List }");
+            processBuilder.redirectErrorStream(true);
+            Process process = processBuilder.start();
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("FileVersion")) {
+                    weChatVersion = line.split("\\s+")[2];
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return weChatVersion;
+    }
+
     public static void main(String[] args) {
         WxInfoServiceImpl wxInfoService = new WxInfoServiceImpl();
-        System.out.println(wxInfoService.getWechatPid());
-        System.out.println(wxInfoService.getWechatFileBasePath());
-        System.out.println(wxInfoService.getIsWow64(wxInfoService.getWechatPid()));
+        int pid = wxInfoService.getWechatPid();
+        System.out.println(pid);
+        String weChatFilePath = wxInfoService.getWechatFileBasePath();
+        System.out.println(weChatFilePath);
+        boolean isWow64 = wxInfoService.getIsWow64(wxInfoService.getWechatPid());
+        System.out.println(isWow64);
+        String weChatInstallPath = wxInfoService.getWechatFileInstallPath(pid);
+        System.out.println(weChatInstallPath);
+        String weChatVersion = wxInfoService.getWechatVersion(weChatInstallPath);
+        System.out.println(weChatVersion);
     }
 }

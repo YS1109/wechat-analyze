@@ -3,7 +3,9 @@ package com.ysoztf.wechat.analyze.wxinfo.impl;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.sun.jna.Memory;
 import com.sun.jna.Native;
+import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Tlhelp32;
 import com.sun.jna.platform.win32.WinDef;
@@ -53,7 +55,6 @@ public class WxInfoServiceImpl implements WxInfoService {
                         pid = Integer.parseInt(params[1]);
                         break;
                     }
-                    System.out.println(line);
                 }
             }
             // 关闭流
@@ -203,9 +204,11 @@ public class WxInfoServiceImpl implements WxInfoService {
         return wxBiasOfVersionMap;
     }
 
+    // 获取微信内存基址
     private long getWeChatMemoryBaseAddr(int pid) {
         long baseAddr = 0L;
         Kernel32 kernel32 = Kernel32.INSTANCE;
+        // TODO: 2023/12/27 32位和64位使用的DWORD不同，这里默认是64位的之后要兼容32位
         WinNT.HANDLE snapshot = kernel32.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPMODULE , new WinDef.DWORD(pid));
         Tlhelp32.MODULEENTRY32W.ByReference module = new Tlhelp32.MODULEENTRY32W.ByReference();
 
@@ -216,10 +219,8 @@ public class WxInfoServiceImpl implements WxInfoService {
                     String modBaseAddr = module.modBaseAddr.toString();
                     String hexAddress = modBaseAddr.substring(modBaseAddr.indexOf("0x") + 2);
                     baseAddr = Long.parseLong(hexAddress, 16);
+                    break;
                 }
-                // 输出模块信息，这里可以获取模块的基址和路径等信息
-                System.out.println("Base Address: " + module.modBaseAddr);
-
                 result = kernel32.Module32NextW(snapshot, module);
             }
         } finally {
@@ -228,8 +229,31 @@ public class WxInfoServiceImpl implements WxInfoService {
         return baseAddr;
     }
 
-    private void getMemoryValue(long addr) {
+    // 获取或指定内存地址中的值
+    private String getMemoryValue(int pid, long address, int bytesToRead) {
+        Kernel32 kernel32 = Kernel32.INSTANCE;
+        WinNT.HANDLE processHandle = kernel32.OpenProcess(Kernel32.PROCESS_VM_READ, false, pid);
 
+        if (processHandle != null) {
+            Pointer buffer = new Memory(bytesToRead); // 使用Memory初始化Pointer
+
+            IntByReference bytesRead = new IntByReference(0);
+
+            boolean success = kernel32.ReadProcessMemory(processHandle, new Pointer(address), buffer, bytesToRead, bytesRead);
+            if (success) {
+                byte[] result = new byte[bytesRead.getValue()];
+                buffer.read(0, result, 0, bytesRead.getValue()); // 将数据从Pointer复制到byte[]
+                return new String(result).trim();
+            } else {
+                System.err.println("Failed to read memory from address " + address);
+            }
+            kernel32.CloseHandle(processHandle);
+        }
+        return null;
+    }
+
+    private WxBiasInfo getCurrentVersionWxBiasInfo(String version) {
+        return WX_BIAS_OF_VERSION_MAP.get(version);
     }
 
     public static void main(String[] args) {
@@ -241,11 +265,19 @@ public class WxInfoServiceImpl implements WxInfoService {
         String weChatVersion = wxInfoService.getWechatVersion(weChatInstallPath);
         long baseAddr = wxInfoService.getWeChatMemoryBaseAddr(pid);
 
-        System.out.println(pid);
-        System.out.println(weChatFilePath);
-        System.out.println(isWow64);
-        System.out.println(weChatInstallPath);
-        System.out.println(weChatVersion);
-        System.out.println(baseAddr);
+        WxBiasInfo wxBiasInfo = wxInfoService.getCurrentVersionWxBiasInfo(weChatVersion);
+        String account = wxInfoService.getMemoryValue(pid, baseAddr + wxBiasInfo.getAccountBias(), 32);
+        String mobile = wxInfoService.getMemoryValue(pid, baseAddr + wxBiasInfo.getMobileBias(), 32);
+        String name = wxInfoService.getMemoryValue(pid, baseAddr + wxBiasInfo.getNameBias(), 32);
+
+        System.out.println("pid: " + pid);
+        System.out.println("weChatFilePath: " +weChatFilePath);
+        System.out.println("isWow64: " + isWow64);
+        System.out.println("weChatInstallPath: " + weChatInstallPath);
+        System.out.println("weChatVersion:" + weChatVersion);
+        System.out.println("baseAddr:" + baseAddr);
+        System.out.println("account:" + account);
+        System.out.println("mobile:" + mobile);
+        System.out.println("name:" + name);
     }
 }
